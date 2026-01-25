@@ -1,0 +1,84 @@
+{% macro calculate_start_time(target_hour_str, forecast_entity, current_soc, predicted_demand_kwh) %}
+  {# --------------------------------------------------- #}
+  {# BMS CALCULATION ENGINE v1.2                         #}
+  {# --------------------------------------------------- #}
+  
+  {% set capacity_kwh = 20 %}
+  {% set charge_power_kw = 10 %}
+  
+  {# 1. TARGET CALCULATION #}
+  {% set target_kwh = [predicted_demand_kwh, capacity_kwh] | min %}
+  {% set current_kwh_in_battery = (current_soc / 100.0) * capacity_kwh %}
+  {% set kwh_needed_gross = [0, target_kwh - current_kwh_in_battery] | max %}
+
+  {# 2. ENVIRONMENTAL DATA #}
+  {% set season = states('sensor.pora_roku') %}
+  {% set weather = states('sensor.openweathermap_condition') %}
+  {% set temp_c = states('sensor.openweathermap_temperature') | float(none) %}
+  {% set raw_forecast = states(forecast_entity) | float(0) %}
+
+  {# 3. MODIFIERS #}
+  
+  {# Season (Polish keys mapping) #}
+  {% if season == 'zima' %} {% set season_mod = 0.7 %}
+  {% elif season == 'jesień' %} {% set season_mod = 0.8 %}
+  {% elif season == 'wiosna' %} {% set season_mod = 0.9 %}
+  {% else %} {% set season_mod = 1.0 %} {% endif %}
+
+  {# Weather #}
+  {% if weather in ['cloudy', 'rainy', 'snowy', 'fog', 'mist', 'overcast', 'drizzle'] %}
+    {% set weather_mod = 0.5 %}
+  {% elif weather in ['partlycloudy', 'partly sunny'] %}
+    {% set weather_mod = 0.7 %}
+  {% elif weather in ['clear', 'sunny'] %}
+    {% set weather_mod = 1.0 %}
+  {% else %}
+    {% set weather_mod = 0.8 %}
+  {% endif %}
+
+  {# Temperature PV Efficiency #}
+  {% if temp_c is none %} {% set temp_pv_mod = 1.0 %}
+  {% elif temp_c < -10 %} {% set temp_pv_mod = 0.85 %}
+  {% elif temp_c < 0 %} {% set temp_pv_mod = 0.92 %}
+  {% elif temp_c < 15 %} {% set temp_pv_mod = 1.0 %}
+  {% elif temp_c < 30 %} {% set temp_pv_mod = 0.95 %}
+  {% else %} {% set temp_pv_mod = 0.88 %} {% endif %}
+
+  {# Demand Mod (Heat Pump Efficiency) #}
+  {% if temp_c is none %} {% set demand_mod = 1.0 %}
+  {% elif temp_c < -15 %} {% set demand_mod = 0.4 %}
+  {% elif temp_c < -10 %} {% set demand_mod = 0.5 %}
+  {% elif temp_c < -5 %} {% set demand_mod = 0.6 %}
+  {% elif temp_c < 0 %} {% set demand_mod = 0.7 %}
+  {% elif temp_c < 5 %} {% set demand_mod = 0.8 %}
+  {% elif temp_c < 15 %} {% set demand_mod = 0.9 %}
+  {% elif temp_c <= 25 %} {% set demand_mod = 1.0 %}
+  {% elif temp_c <= 28 %} {% set demand_mod = 0.8 %}
+  {% elif temp_c <= 32 %} {% set demand_mod = 0.6 %}
+  {% else %} {% set demand_mod = 0.88 %} {% endif %}
+
+  {# 4. FINAL CALCULATION #}
+  {% set total_mod = season_mod * weather_mod * temp_pv_mod * demand_mod %}
+  {% set adjusted_solar = raw_forecast * total_mod %}
+  
+  {% set grid_needed = [0, kwh_needed_gross - adjusted_solar] | max %}
+  
+  {# Add 10% buffer for charging inefficiency #}
+  {% set minutes_needed = ((grid_needed / charge_power_kw) * 60 * 1.1) | round(0, 'ceil') | int %}
+
+  {# Date Logic #}
+  {% set target_dt = today_at(target_hour_str) %}
+  
+  {# If target hour passed, calculate for tomorrow #}
+  {% if target_dt < now() %}
+    {% set target_dt = target_dt + timedelta(days=1) %}
+  {% endif %}
+
+  {# RESULT #}
+  {% if minutes_needed > 0 %}
+    {{ (target_dt - timedelta(minutes=minutes_needed)).isoformat() }}
+  {% else %}
+    {# If no charge needed, push time to future to avoid triggering #}
+    {{ (target_dt + timedelta(days=1)).isoformat() }}
+  {% endif %}
+{% endmacro %}

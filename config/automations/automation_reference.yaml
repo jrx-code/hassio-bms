@@ -1,0 +1,89 @@
+# -----------------------------------------------------------------------------
+# AUTOMATION CODE (COPY TO GUI or automations.yaml)
+# Version: 1.2.0 (English Aliases)
+# -----------------------------------------------------------------------------
+
+alias: BMS | Core Logic
+description: "Core battery charging logic based on Jinja calculations. (v1.2.0)"
+mode: restart
+
+triggers:
+  - alias: "🕒 START: Dynamic Calculated Time (06:00 or 15:00)"
+    id: start_charge
+    platform: template
+    value_template: >
+      {% set t6 = states('sensor.bms_start_time_06_00') | as_datetime %}
+      {% set t15 = states('sensor.bms_start_time_15_00') | as_datetime %}
+      {{ 
+        (t6 is not none and now() >= t6) or 
+        (t15 is not none and now() >= t15) 
+      }}
+
+  - alias: "🛑 STOP: Hard Stop Morning Tariff (06:00)"
+    id: stop_charge
+    platform: time
+    at: "06:00:00"
+
+  - alias: "🛑 STOP: Hard Stop Afternoon Tariff (15:00)"
+    id: stop_charge
+    platform: time
+    at: "15:00:00"
+
+conditions:
+  # SAFETY KILL SWITCH
+  - alias: "SAFETY CHECK: Is Master Switch ON?"
+    condition: state
+    entity_id: input_boolean.bms_automation
+    state: "on"
+
+actions:
+  - choose:
+      # --- SCENARIO 1: START CHARGING ---
+      - alias: "🟢 EXECUTION: Start Charging (Force Charge)"
+        conditions:
+          - condition: trigger
+            id: start_charge
+          - alias: "Is charging actually required? (<95%)"
+            condition: state
+            entity_id: binary_sensor.bms_charge_required
+            state: "on"
+        sequence:
+          - alias: "Inverter: Force Charge"
+            action: select.select_option
+            target:
+              entity_id: select.work_mode
+            data:
+              option: Force Charge
+          
+          - alias: "Notification: Mobile App (Telefon)"
+            action: notify.mobile_app_telefon_jarek_fold7
+            data:
+              title: "🚀 BMS Started"
+              message: "Charging initiated. SoC: {{ states('sensor.battery_soc_raw') }}%"
+              data:
+                tag: bms_status
+                group: bms_log
+                channel: "BMS Alerts"
+
+      # --- SCENARIO 2: STOP CHARGING ---
+      - alias: "🔴 EXECUTION: Stop Charging (Self Use)"
+        conditions:
+          - condition: trigger
+            id: stop_charge
+        sequence:
+          - alias: "Inverter: Self Use"
+            action: select.select_option
+            target:
+              entity_id: select.work_mode
+            data:
+              option: Self Use
+          
+          - alias: "Notification: Mobile App (Telefon)"
+            action: notify.mobile_app_telefon_jarek_fold7
+            data:
+              title: "✅ BMS Stopped"
+              message: "Returned to Self Use. SoC: {{ states('sensor.battery_soc_raw') }}%"
+              data:
+                tag: bms_status
+                group: bms_log
+                channel: "BMS Alerts"

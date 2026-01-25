@@ -1,0 +1,43 @@
+# -----------------------------------------------------------------------------
+# BMS Package: Infrastructure
+# Author:      Home Assistant Architect | JrX-Code
+# Description: Input Booleans & Modbus Proxy Sensors
+# -----------------------------------------------------------------------------
+
+# 1. MASTER SWITCH
+input_boolean:
+  bms_automation:
+    name: "BMS | Automation Master"
+    icon: mdi:robot-industrial
+
+# 2. MODBUS PROXY SENSOR
+# Direct communication with FoxESS without 'input_number' middleman
+template:
+  - trigger:
+      # Poll every 2 minutes (Reduces Modbus load)
+      - trigger: time_pattern
+        minutes: "/2"
+      # Force update immediately on mode change
+      - trigger: state
+        entity_id: select.work_mode
+    action:
+      - action: foxess_modbus.read_registers
+        data:
+          start_address: 31038
+          count: 1
+          type: input
+          inverter: 3f1f40c08ecfa1213be0afec436b3188
+        response_variable: modbus_data
+    sensor:
+      - name: "Battery SoC Raw"
+        unique_id: battery_soc_raw
+        unit_of_measurement: "%"
+        device_class: battery
+        state_class: measurement
+        state: >
+          {% if modbus_data is defined and modbus_data['values'] is defined %}
+            {{ modbus_data['values'][31038] | int }}
+          {% else %}
+            {# Fix for startup race condition #}
+            {{ this.state | int(0) }}
+          {% endif %}

@@ -1,0 +1,75 @@
+# -----------------------------------------------------------------------------
+# BMS Package: Logic & Calculations
+# Author:      Home Assistant Architect | JrX-Code
+# Description: Template sensors calculating demand and charge start times.
+# -----------------------------------------------------------------------------
+
+template:
+  # 1. PREDICTED DEMAND SENSOR
+  - sensor:
+      - name: "BMS Predicted Demand"
+        unique_id: bms_predicted_demand
+        unit_of_measurement: "kWh"
+        state_class: measurement
+        state: >
+          {# 1. Calculate time difference between sunrise and 13:00 #}
+          {% set next_rising = states('sensor.sun_next_rising') %}
+          
+          {# Fix for startup race condition #}
+          {% if next_rising in ['unknown', 'unavailable', 'none'] %}
+            0
+          {% else %}
+            {% set rising_local = next_rising | as_datetime | as_local %}
+            {% set target_local = rising_local.replace(hour=13, minute=0, second=0, microsecond=0) %}
+            
+            {# Difference in hours #}
+            {% set diff_hours = (target_local - rising_local).total_seconds() / 3600 %}
+  
+            {# 2. Season Factors (Keys must match Polish 'sensor.pora_roku') #}
+            {% set season = states('sensor.pora_roku') | lower %}
+            {% set factors = {
+              'wiosna': 1.3,
+              'lato': 1.0,
+              'jesień': 1.3,
+              'zima': 1.8
+            } %}
+  
+            {# Select factor (default to 1.8/winter if undefined) #}
+            {% set factor = factors.get(season, 1.8) %}
+  
+            {# Result: Predicted consumption in kWh #}
+            {{ (diff_hours * factor) | round(2) }}
+          {% endif %}
+
+  # 2. START TIME SENSORS
+  - sensor:
+      - name: "BMS Start Time 06:00"
+        unique_id: bms_start_time_06_00
+        device_class: timestamp
+        state: >
+          {% from 'bms.jinja' import calculate_start_time %}
+          {{ calculate_start_time(
+              '06:00', 
+              'sensor.solcast_pv_forecast_prognoza_na_dzisiaj', 
+              states('sensor.battery_soc_raw')|float(0),
+              states('sensor.bms_predicted_demand')|float(10) 
+          ) }}
+
+      - name: "BMS Start Time 15:00"
+        unique_id: bms_start_time_15_00
+        device_class: timestamp
+        state: >
+          {% from 'bms.jinja' import calculate_start_time %}
+          {# Afternoon: Full charge (20kWh) #}
+          {{ calculate_start_time(
+              '15:00', 
+              'sensor.solcast_pv_forecast_prognoza_na_dzisiaj', 
+              states('sensor.battery_soc_raw')|float(0),
+              20
+          ) }}
+
+  # 3. HYSTERESIS SWITCH
+  - binary_sensor:
+      - name: "BMS Charge Required"
+        unique_id: bms_charge_required
+        state: "{{ states('sensor.battery_soc_raw')|float(100) < 95 }}"
