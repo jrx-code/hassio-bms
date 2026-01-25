@@ -1,6 +1,6 @@
 # Vault-Tec BMS Automation (v1.2.0)
 
-![Vault-Tec System](images/image.png)
+![Vault-Tec System](https://github.com/jrx-code/hassio-bms/blob/main/images/image.png?raw=true)
 
 > *"Prepared for the Future."*
 
@@ -20,18 +20,30 @@ This system replaces dumb timers with intelligent, environmental-aware logic. It
 
 ---
 
+## 🔌 System Input Requirements
+
+To function correctly, the **RobCo Logic Engine** (`bms.jinja`) requires specific telemetry data. Ensure your sensors match the types and values below.
+
+### Critical Entities Map
+
+| Entity (Variable Name) | Expected Type / Unit | Required Values / Format | Description |
+| :--- | :--- | :--- | :--- |
+| `sensor.battery_soc_raw` | **Integer** `(%)` | `0` - `100` | Real-time SoC directly from BMS/Modbus. Must be instant. |
+| `sensor.solcast_pv_forecast...` | **Float** `(kWh)` | `>= 0.0` | **Remaining** energy forecast for today. Defines solar offset. |
+| `sensor.openweathermap_temperature` | **Float** `(°C)` | Any (`-30` to `50`) | Ambient temp. Drives charging efficiency & heat pump demand logic. |
+| `sensor.pora_roku` | **String** | `'zima'`, `'wiosna'`, `'lato'`, `'jesień'` | Season sensor. **Must be in Polish** to match Jinja logic map. |
+| `sensor.openweathermap_condition` | **String** | `cloudy`, `rainy`, `sunny`, etc. | Weather condition. Used to lower solar confidence in bad weather. |
+| `select.work_mode` | **Select** | `Self Use`, `Force Charge` | The control entity for the FoxESS Inverter. |
+
+> **Note:** If your season sensor returns English values (e.g., 'winter'), you must edit `custom_templates/bms.jinja` to match them.
+
+---
+
 ## 🧠 How It Works (The Logic Loop)
 
 The brain of the operation resides in `bms.jinja`. Every minute, the system performs the following calculations:
 
-### 1. Data Acquisition
-It gathers real-time telemetry:
-* **Battery Status:** Current SoC (via direct Modbus).
-* **Solar Forecast:** Solcast / Forecast.solar data for the remaining day.
-* **Environment:** Outdoor temperature, weather condition, season.
-* **Time Windows:** Target hours (06:00 / 15:00).
-
-### 2. The Heuristic Calculation
+### 1. The Heuristic Calculation
 The system calculates the **Energy Deficit**:
 $$ \text{Needed kWh} = \min(\text{Predicted Demand}, \text{Capacity}) - \text{Current Energy} $$
 
@@ -40,7 +52,7 @@ Then, it applies **Dynamic Modifiers**:
 * **Weather Factor:** Reduces solar confidence during rain/snow.
 * **Temp Factor:** Adjusts efficiency assumptions based on ambient temperature.
 
-### 3. Execution (The Trigger)
+### 2. Execution (The Trigger)
 Finally, it solves for $T_{start}$:
 $$ T_{start} = T_{target} - \left( \frac{\text{Grid Needed (kWh)}}{\text{Charge Power (kW)}} \times 1.1 \right) $$
 *(1.1 is a 10% efficiency buffer)*
@@ -48,8 +60,6 @@ $$ T_{start} = T_{target} - \left( \frac{\text{Grid Needed (kWh)}}{\text{Charge 
 When `now() >= calculated_start_time`, the Automation triggers:
 1.  **Switch Inverter Mode:** Sets FoxESS to `Force Charge`.
 2.  **Notify Overseer:** Sends a Mobile App notification with current SoC.
-
-When the target hour is reached (06:00/15:00), the system performs a **Hard Stop**, reverting the inverter to `Self Use`.
 
 ---
 
@@ -87,4 +97,4 @@ When the target hour is reached (06:00/15:00), the system performs a **Hard Stop
 ---
 
 *Property of RobCo Industries. Unauthorized access is a Class A felony.*
-END_README
+
