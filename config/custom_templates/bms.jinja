@@ -1,31 +1,47 @@
-{% macro calculate_start_time(target_hour_str, forecast_entity, current_soc, predicted_demand_kwh) %}
-  {# --------------------------------------------------- #}
-  {# BMS CALCULATION ENGINE v1.2                         #}
-  {# --------------------------------------------------- #}
+{# --------------------------------------------------- #}
+{# BMS CALCULATION ENGINE v1.2                         #}
+{# --------------------------------------------------- #}
+{# Mode: SAFETY FIRST (Pessimistic)                    #}
+{# Path: /config/custom_templates/bms.jinja            #}
+{# --------------------------------------------------- #}
+
+{% macro calculate_start_time(target_hour_str, forecast_entity, current_soc, predicted_demand_kwh, capacity_kwh=20, charge_power_kw=10) %}
   
-  {% set capacity_kwh = 20 %}
-  {% set charge_power_kw = 10 %}
+  {# --- SAFETY CONFIGURATION --- #}
+  {% set safety_multiplier = 1.5 %}    {# Always charge 50% more than predicted demand #}
+  {% set min_charge_floor_perc = 40 %} {# Minimum overnight charge level (40% = 8kWh) #}
+  {% set solar_confidence = 0.5 %}     {# Trust solar forecast only at 50% #}
+
+  {# --- 1. TARGET CALCULATION (HARDENED) --- #}
+  {# Target calculated from demand with safety multiplier #}
+  {% set target_from_demand = predicted_demand_kwh * safety_multiplier %}
   
-  {# 1. TARGET CALCULATION #}
-  {% set target_kwh = [predicted_demand_kwh, capacity_kwh] | min %}
+  {# Minimum target ("Hard Floor") #}
+  {% set target_floor = capacity_kwh * (min_charge_floor_perc / 100.0) %}
+  
+  {# Final Target: Not less than floor, not less than demand, but max at capacity #}
+  {% set target_kwh = [target_from_demand, target_floor] | max %}
+  {% set target_kwh = [target_kwh, capacity_kwh] | min %}
+  
+  {# Current energy in battery #}
   {% set current_kwh_in_battery = (current_soc / 100.0) * capacity_kwh %}
+  
+  {# Energy needed to reach gross target #}
   {% set kwh_needed_gross = [0, target_kwh - current_kwh_in_battery] | max %}
 
-  {# 2. ENVIRONMENTAL DATA #}
+  {# --- 2. WEATHER MODIFIERS --- #}
   {% set season = states('sensor.pora_roku') %}
   {% set weather = states('sensor.openweathermap_condition') %}
   {% set temp_c = states('sensor.openweathermap_temperature') | float(none) %}
   {% set raw_forecast = states(forecast_entity) | float(0) %}
 
-  {# 3. MODIFIERS #}
-  
-  {# Season (Polish keys mapping) #}
+  {# Season Modifier #}
   {% if season == 'zima' %} {% set season_mod = 0.7 %}
   {% elif season == 'jesień' %} {% set season_mod = 0.8 %}
   {% elif season == 'wiosna' %} {% set season_mod = 0.9 %}
   {% else %} {% set season_mod = 1.0 %} {% endif %}
 
-  {# Weather #}
+  {# Weather Condition Modifier #}
   {% if weather in ['cloudy', 'rainy', 'snowy', 'fog', 'mist', 'overcast', 'drizzle'] %}
     {% set weather_mod = 0.5 %}
   {% elif weather in ['partlycloudy', 'partly sunny'] %}
@@ -36,7 +52,7 @@
     {% set weather_mod = 0.8 %}
   {% endif %}
 
-  {# Temperature PV Efficiency #}
+  {# Temperature Modifier (PV Efficiency) #}
   {% if temp_c is none %} {% set temp_pv_mod = 1.0 %}
   {% elif temp_c < -10 %} {% set temp_pv_mod = 0.85 %}
   {% elif temp_c < 0 %} {% set temp_pv_mod = 0.92 %}
@@ -44,41 +60,29 @@
   {% elif temp_c < 30 %} {% set temp_pv_mod = 0.95 %}
   {% else %} {% set temp_pv_mod = 0.88 %} {% endif %}
 
-  {# Demand Mod (Heat Pump Efficiency) #}
-  {% if temp_c is none %} {% set demand_mod = 1.0 %}
-  {% elif temp_c < -15 %} {% set demand_mod = 0.4 %}
-  {% elif temp_c < -10 %} {% set demand_mod = 0.5 %}
-  {% elif temp_c < -5 %} {% set demand_mod = 0.6 %}
-  {% elif temp_c < 0 %} {% set demand_mod = 0.7 %}
-  {% elif temp_c < 5 %} {% set demand_mod = 0.8 %}
-  {% elif temp_c < 15 %} {% set demand_mod = 0.9 %}
-  {% elif temp_c <= 25 %} {% set demand_mod = 1.0 %}
-  {% elif temp_c <= 28 %} {% set demand_mod = 0.8 %}
-  {% elif temp_c <= 32 %} {% set demand_mod = 0.6 %}
-  {% else %} {% set demand_mod = 0.88 %} {% endif %}
+  {# --- 3. FINAL CALCULATIONS (WITH SOLAR CONFIDENCE) --- #}
+  {% set total_mod = season_mod * weather_mod * temp_pv_mod %}
+  
+  {# Solar Forecast Adjustment: Multiply by solar_confidence (0.5) #}
+  {% set adjusted_solar = raw_forecast * total_mod * solar_confidence %}
 
-  {# 4. FINAL CALCULATION #}
-  {% set total_mod = season_mod * weather_mod * temp_pv_mod * demand_mod %}
-  {% set adjusted_solar = raw_forecast * total_mod %}
-  
+  {# Net Grid Requirement: Needed - (Forecast * 0.5) #}
   {% set grid_needed = [0, kwh_needed_gross - adjusted_solar] | max %}
-  
-  {# Add 10% buffer for charging inefficiency #}
+
+  {# Duration Calculation: +10% buffer for inverter ramp up/down #}
   {% set minutes_needed = ((grid_needed / charge_power_kw) * 60 * 1.1) | round(0, 'ceil') | int %}
 
-  {# Date Logic #}
+  {# Start Time Logic #}
   {% set target_dt = today_at(target_hour_str) %}
-  
-  {# If target hour passed, calculate for tomorrow #}
   {% if target_dt < now() %}
     {% set target_dt = target_dt + timedelta(days=1) %}
   {% endif %}
 
-  {# RESULT #}
   {% if minutes_needed > 0 %}
     {{ (target_dt - timedelta(minutes=minutes_needed)).isoformat() }}
   {% else %}
-    {# If no charge needed, push time to future to avoid triggering #}
+    {# If no charge needed, return future date to avoid triggering automation #}
     {{ (target_dt + timedelta(days=1)).isoformat() }}
   {% endif %}
+
 {% endmacro %}
