@@ -1,0 +1,137 @@
+type: custom:button-card
+entity: select.work_mode
+triggers_update: "all"
+show_name: false
+show_icon: false
+show_state: false
+tap_action:
+  action: navigate
+  navigation_path: /lovelace/bms-settings
+
+# ---------------------------------------------------------
+# 1. CSS
+# ---------------------------------------------------------
+styles:
+  card:
+    - height: 400px
+    # CHANGE 1: Base background is now transparent
+    - background-color: "transparent"
+    # CHANGE 2: Enhanced interlace effect (from 0.05 to 0.25) and adjusted vignette for better transparency
+    - background-image: "radial-gradient(circle at center, rgba(0,50,0,0.1) 0%, rgba(0,0,0,0.8) 100%), repeating-linear-gradient(transparent 0px, transparent 2px, rgba(0, 255, 0, 0.25) 3px, rgba(0, 255, 0, 0.25) 4px)"
+    - background-size: "100% 100%"
+    - border: "4px solid #2a2a2a"
+    - border-radius: 15px
+    # Slight reduction of inner glow to prevent clouding the transparency
+    - box-shadow: "inset 0 0 30px rgba(0,255,0,0.15), 0 0 20px rgba(0,0,0,0.8)"
+    - color: "#00ff00"
+    - font-family: "Courier New, monospace"
+    - text-shadow: "0 0 4px #00ff00, 0 0 8px rgba(0,200,0,0.6)"
+    - padding: "20px"
+    - overflow: hidden
+    - animation: "crt-flicker 0.15s infinite"
+
+  grid:
+    - grid-template-areas: '"header" "data" "footer"'
+    - grid-template-columns: 1fr
+    - grid-template-rows: 40px 1fr 35px
+    - gap: 15px
+
+  custom_fields:
+    header:
+      - border-bottom: "2px solid rgba(0, 255, 0, 0.7)"
+      - font-size: 22px
+      - font-weight: bold
+      - letter-spacing: 3px
+      - display: flex
+      - align-items: center
+      - justify-content: center
+
+    data:
+      - display: flex
+      - flex-direction: column
+      - justify-content: flex-start 
+      - align-items: center
+      - text-align: center
+      - padding-top: 15px 
+
+    footer:
+      - display: flex
+      - flex-direction: column
+      - justify-content: center
+
+# ---------------------------------------------------------
+# 2. HTML
+# ---------------------------------------------------------
+custom_fields:
+  header: >
+    [[[ return "VAULT-TEC BMS"; ]]]
+
+  data: >
+    [[[
+      var soc = states['sensor.battery_soc_raw']?.state || 0;
+      var demand = states['sensor.bms_predicted_demand']?.state || 0;
+      var t6 = states['sensor.bms_start_time_06_00']?.state.substr(11, 5) || "--:--";
+      var t15 = states['sensor.bms_start_time_15_00']?.state.substr(11, 5) || "--:--";
+      var master = states['input_boolean.bms_automation']?.state || 'off';
+      
+      var mColor = (master === 'on') ? '#00ff00' : '#ff3333';
+      var mText = (master === 'on') ? 'SYSTEM ONLINE' : 'SAFETY LOCK ENGAGED';
+      var mShadow = (master === 'on') ? '0 0 8px #00ff00' : '0 0 8px #ff0000';
+
+      return `
+        <div style="width: 100%;">
+          <div style="font-size: 60px; font-weight: bold; line-height: 0.8; text-shadow: 0 0 20px #00ff00; margin-bottom: 25px;">
+            ${soc}%
+          </div>
+          
+          <div style="font-size: 14px; opacity: 0.9; letter-spacing: 2px; margin-bottom: 20px; border-top: 2px solid rgba(0,255,0,0.5); padding-top: 10px; width: 70%; margin-left: auto; margin-right: auto;">
+            ENERGY CELL STATUS
+          </div>
+          
+          <div style="font-size: 12px; line-height: 2.2; width: auto; background: rgba(0,20,0,0.3); padding: 10px; border: 2px solid rgba(0,255,0,0.4); margin-left: 10px; margin-right: 10px;">
+            <div style="font-size: 14px; margin-bottom: 5px; letter-spacing: 1px;">
+              STATUS: <span style="color: ${mColor}; font-weight: bold; text-shadow: ${mShadow};">${mText}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; width: 95%; margin: auto; border-bottom: 1px dashed rgba(0,255,0,0.3);">
+                <span>PREDICTED DEMAND:</span><b>${demand} kWh</b>
+            </div>
+            <div style="display: flex; justify-content: space-between; width: 95%; margin: auto; border-bottom: 1px dashed rgba(0,255,0,0.3);">
+                <span>CYCLE START (06:00):</span><b>${t6}</b>
+            </div>
+            <div style="display: flex; justify-content: space-between; width: 95%; margin: auto;">
+                <span>CYCLE START (15:00):</span><b>${t15}</b>
+            </div>
+          </div>
+        </div>
+      `;
+    ]]]
+
+  footer: >
+    [[[
+      var isCharging = (entity.state === 'Force Charge');
+      var soc = states['sensor.battery_soc_raw']?.state || 0;
+      
+      var barFill = isCharging ? 
+        `repeating-linear-gradient(45deg, #00ff00, #00ff00 10px, rgba(0, 50, 0, 0.8) 10px, rgba(0, 50, 0, 0.8) 20px)` : 
+        `rgba(0, 255, 0, 0.9)`;
+      
+      var barAnim = isCharging ? "animation: charge-scroll 2s linear infinite;" : "";
+
+      return `
+        <div style="width: 100%; height: 26px; border: 3px solid rgba(0, 255, 0, 0.7); padding: 3px; background: rgba(0, 20, 0, 0.6); box-sizing: border-box;">
+          <div style="width: ${soc}%; height: 100%; background: ${barFill}; background-size: 200% 200%; box-shadow: 0 0 20px rgba(0, 255, 0, 1); ${barAnim}"></div>
+        </div>
+      `;
+    ]]]
+
+extra_styles: |
+  @keyframes crt-flicker {
+    0% { opacity: 0.98; text-shadow: 0 0 4px #00ff00; }
+    50% { opacity: 1; text-shadow: 0 0 6px #00ff00, 0 0 10px rgba(0,255,0,0.4); }
+    100% { opacity: 0.99; text-shadow: 0 0 5px #00ff00; }
+  }
+  
+  @keyframes charge-scroll {
+    0% { background-position: 0% 0%; }
+    100% { background-position: 100% 0%; }
+  }
