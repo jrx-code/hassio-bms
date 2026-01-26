@@ -11,6 +11,7 @@ This directory contains the custom **Pip-Boy 3000** styled interface card for th
 | File | Description |
 | :--- | :--- |
 | **`battery-card.yaml`** | The main code for the custom card. Contains all CSS, HTML, and JS logic for the CRT effect and animations. |
+| **`debug-card.yaml`** | A diagnostic version of the interface. Displays live calculation variables (weather, demand, modifiers) used by the BMS logic in real-time. |
 
 ---
 
@@ -57,6 +58,20 @@ If you are using `yaml` mode or want to keep your dashboard clean:
     * **Charging:** The progress bar animates with a "scanning" effect when `select.work_mode` is set to `Force Charge`.
     * **Status Indicators:** Text blinks or changes color based on system state (Safety Lock / Online).
 * **Responsive Layout:** Uses CSS Grid to ensure elements (Header, Data, Footer) stay aligned regardless of screen width.
+
+---
+
+## 🔧 Diagnostics & Debugging
+
+![Debug Interface](https://github.com/jrx-code/hassio-bms/blob/main/images/debug-card.png?raw=true)
+
+The **`debug-card.yaml`** offers a live "under the hood" view of the BMS logic. It visualizes:
+* **Environment Factors:** Current season, weather condition, and temperature modifiers.
+* **Target Calculations:** Breakdown of demand vs. safety floor calculations.
+* **Solar Confidence:** Real-time adjustment of solar forecasts based on confidence levels.
+* **Grid Demand:** Final calculated energy needed from the grid.
+
+To use it, simply include `cards/debug-card.yaml` instead of `battery-card.yaml`.
 
 ---
 
