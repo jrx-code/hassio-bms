@@ -35,7 +35,7 @@ To function correctly, the **RobCo Logic Engine** (`bms.jinja`) requires specifi
 | `sensor.openweathermap_condition` | **String** | `cloudy`, `rainy`, `sunny`, etc. | Weather condition. Used to lower solar confidence in bad weather. |
 | `select.work_mode` | **Select** | `Self Use`, `Force Charge` | The control entity for the FoxESS Inverter. |
 
-> **Note:** If your season sensor returns English values (e.g., 'winter'), you must edit `custom_templates/bms.jinja` to match them.
+> **Note:** If your season sensor returns English values (e.g., 'winter'), you must edit `config/custom_templates/bms.jinja` to match them.
 
 ---
 
@@ -70,21 +70,22 @@ When `now() >= calculated_start_time`, the Automation triggers:
 | **`config/custom_templates/bms.jinja`** | **The Brain.** Contains the heavy mathematical macros and logic modifiers. |
 | **`config/packages/bms/1_infrastructure.yaml`** | **The Hardware.** Input Booleans (Safety Switch) and Modbus Proxy sensors. |
 | **`config/packages/bms/2_logic.yaml`** | **The Sensors.** Template sensors that expose the calculated start times to HA. |
-| **`automation_reference.yaml`** | **The Enforcer.** The actual Automation code (Triggers & Actions) to be used in HA UI. |
+| **`config/automations/automation_reference.yaml`** | **The Enforcer.** Automation triggers & actions to paste into the HA UI. |
+| **`cards/`** | Lovelace card YAML for battery / debug dashboards. |
 
 ---
 
 ## 🚀 Installation
 
-1.  **Copy Files:** Move `packages` and `custom_templates` folders to your Home Assistant `/config/` directory.
+1.  **Copy Files:** Copy `config/packages` and `config/custom_templates` from this repo into your Home Assistant `/config/` directory (so you get `/config/packages/...` and `/config/custom_templates/...`).
 2.  **Update Config:** Ensure your `configuration.yaml` allows packages:
     ```yaml
     homeassistant:
       packages: !include_dir_named packages
     ```
 3.  **Restart:** Reboot Home Assistant Core.
-4.  **Create Automation:** Copy the code from `automation_reference.yaml` and paste it into a new Automation (Edit in YAML mode).
-5.  **Add Image:** Place your logo at `Vault_Tec_BMS/images/image.png`.
+4.  **Create Automation:** Copy the code from `config/automations/automation_reference.yaml` and paste it into a new Automation (Edit in YAML mode).
+5.  **Dashboard image (optional):** The repo already ships `images/image.png` for the README; Lovelace card YAML under `cards/` references entities you configure locally.
 
 ---
 
@@ -97,4 +98,3 @@ When `now() >= calculated_start_time`, the Automation triggers:
 ---
 
 *Property of RobCo Industries. Unauthorized access is a Class A felony.*
-
