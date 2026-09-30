@@ -1,0 +1,43 @@
+# Laundry drying session tracker
+# Tracks humidity curves during drying sessions for adaptive threshold learning.
+# Data collected in InfluxDB via standard HA integration (~15 sessions needed).
+
+input_boolean:
+  laundry_drying_session:
+    name: "Laundry | Drying session active"
+    icon: mdi:tumble-dryer
+
+input_number:
+  laundry_session_start_humidity:
+    name: "Laundry | Session start humidity"
+    min: 0
+    max: 100
+    step: 0.1
+    unit_of_measurement: "%"
+
+input_text:
+  laundry_session_id:
+    name: "Laundry | Session ID"
+    max: 32
+
+template:
+  - sensor:
+      - name: "Laundry session duration"
+        unique_id: laundry_session_duration
+        unit_of_measurement: "min"
+        state_class: measurement
+        state: >
+          {% if is_state('input_boolean.laundry_drying_session', 'on') %}
+            {{ ((now() - states.input_boolean.laundry_drying_session.last_changed).total_seconds() / 60) | round(0) }}
+          {% else %}
+            0
+          {% endif %}
+
+      - name: "Laundry humidity delta"
+        unique_id: laundry_humidity_delta
+        unit_of_measurement: "%"
+        state_class: measurement
+        state: >
+          {% set start = states('input_number.laundry_session_start_humidity') | float(0) %}
+          {% set now_h = states('sensor.tasmota_bc9150_si7021_humidity') | float(0) %}
+          {{ (start - now_h) | round(1) }}

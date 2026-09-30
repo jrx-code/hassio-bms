@@ -1,89 +1,127 @@
-# -----------------------------------------------------------------------------
-# AUTOMATION CODE (COPY TO GUI or automations.yaml)
-# Version: 1.2.0 (English Aliases)
-# -----------------------------------------------------------------------------
-
-alias: BMS | Core Logic
-description: "Core battery charging logic based on Jinja calculations. (v1.2.0)"
-mode: restart
-
-triggers:
-  - alias: "🕒 START: Dynamic Calculated Time (06:00 or 15:00)"
+- id: '1769372312722'
+  alias: '🔋 BMS: Zarządzanie ładowaniem akumulatorów'
+  description: 'Sterowanie ładowaniem baterii w oknach tańszej taryfy: nocna (22:30-06:00)
+    i popołudniowa (13:00-15:00).'
+  triggers:
+  - alias: '🕒 Start: Dynamiczne wyliczenie czasu ładowania'
     id: start_charge
-    platform: template
-    value_template: >
-      {% set t6 = states('sensor.bms_start_time_06_00') | as_datetime %}
-      {% set t15 = states('sensor.bms_start_time_15_00') | as_datetime %}
-      {{ 
-        (t6 is not none and now() >= t6) or 
-        (t15 is not none and now() >= t15) 
-      }}
+    trigger: template
+    value_template: '{% set t6 = states(''sensor.bms_start_time_06_00_2'') | as_datetime
+      %}  {% set t15 = states(''sensor.bms_start_time_15_00_2'') | as_datetime %}  {{
+      (t6 is not none and now() >= t6) or (t15 is not none and now() >= t15) }}
 
-  - alias: "🛑 STOP: Hard Stop Morning Tariff (06:00)"
+      '
+  - alias: '🕒 Start: Taryfa nocna (22:30)'
+    id: start_charge
+    trigger: time
+    at: '22:30:00'
+  - alias: '🕒 Start: Taryfa popołudniowa (13:00)'
+    id: start_charge
+    trigger: time
+    at: '13:00:00'
+  - alias: '🛑 Stop: Koniec taryfy nocnej (06:00)'
     id: stop_charge
-    platform: time
-    at: "06:00:00"
-
-  - alias: "🛑 STOP: Hard Stop Afternoon Tariff (15:00)"
+    trigger: time
+    at: 06:00:00
+  - alias: '🛑 Stop: Koniec taryfy popołudniowej (15:00)'
     id: stop_charge
-    platform: time
-    at: "15:00:00"
-
-conditions:
-  # SAFETY KILL SWITCH
-  - alias: "SAFETY CHECK: Is Master Switch ON?"
+    trigger: time
+    at: '15:00:00'
+  conditions:
+  - alias: '🔍 Safety: Sprawdzenie blokady automatyki BMS'
     condition: state
     entity_id: input_boolean.bms_automation
-    state: "on"
+    state: 'on'
+  - alias: 🔍 Sprawdź czy system nie jest w trybie serwisowym
+    condition: state
+    entity_id: input_boolean.tryb_maintenance
+    state: 'off'
+  actions:
+  - alias: 📑 Wybór trybu pracy falownika
+    choose:
+    - alias: '🟢 ID: start_charge -> Aktywacja Force Charge'
+      conditions:
+      - alias: 🔍 trigger_id == start_charge
+        condition: trigger
+        id: start_charge
+      - alias: 🔍 Czy jesteśmy w oknie tańszej taryfy?
+        condition: template
+        value_template: '{% set h = now().hour %}{% set m = now().minute %}{% set
+          t = h * 60 + m %}{{ (t >= 1350 or t < 360) or (t >= 780 and t < 900) }}
 
-actions:
-  - choose:
-      # --- SCENARIO 1: START CHARGING ---
-      - alias: "🟢 EXECUTION: Start Charging (Force Charge)"
-        conditions:
-          - condition: trigger
-            id: start_charge
-          - alias: "Is charging actually required? (<95%)"
-            condition: state
-            entity_id: binary_sensor.bms_charge_required
-            state: "on"
-        sequence:
-          - alias: "Inverter: Force Charge"
-            action: select.select_option
-            target:
-              entity_id: select.work_mode
-            data:
-              option: Force Charge
-          
-          - alias: "Notification: Mobile App (Telefon)"
-            action: notify.mobile_app_telefon_jarek_fold7
-            data:
-              title: "🚀 BMS Started"
-              message: "Charging initiated. SoC: {{ states('sensor.battery_soc_raw') }}%"
-              data:
-                tag: bms_status
-                group: bms_log
-                channel: "BMS Alerts"
+          '
+      - alias: 🔍 Czy wyliczony czas startu już minął?
+        condition: template
+        value_template: >
+          {% set h = now().hour %}{% set m = now().minute %}{% set t = h * 60 + m %}
+          {% if t >= 780 and t < 900 %}
+            {% set st = states('sensor.bms_start_time_15_00_2') | as_datetime %}
+            {{ st is not none and now() >= st }}
+          {% elif t >= 1350 or t < 360 %}
+            {% set st = states('sensor.bms_start_time_06_00_2') | as_datetime %}
+            {{ st is not none and now() >= st }}
+          {% else %}
+            false
+          {% endif %}
+      - alias: 🔍 Czy poziom SoC wymaga doładowania?
+        condition: state
+        entity_id: binary_sensor.bms_charge_required
+        state: 'on'
+      sequence:
+      - alias: '⚡ Bateria: Ustaw max prąd ładowania 26A (~10kW)'
+        action: number.set_value
+        target:
+          entity_id:
+          - number.foxess_modbus_max_charge_current
+        data:
+          value: 26
+      - alias: '⚡ Falownik: Ustaw tryb Force Charge'
+        action: select.select_option
+        target:
+          entity_id:
+          - select.foxess_modbus_work_mode
+        data:
+          option: Force Charge
+      - alias: '📲 Powiadomienie: Rozpoczęto ładowanie'
+        action: notify.mobile_app_your_phone
+        data:
+          title: '🚀 BMS: Ładowanie aktywne'
+          message: 'Rozpoczęto wymuszone ładowanie (taryfa {{ ''nocna'' if (now().hour
+            >= 22 or now().hour < 6) else ''popołudniowa'' }}). SoC: {{ states(''sensor.battery_soc_foxess_modbus'')
+            }}%'
+          data:
+            tag: bms_status
+            group: bms_log
+            channel: BMS Alerts
+    - alias: '🔴 ID: stop_charge -> Powrót do Self Use'
+      conditions:
+      - alias: 🔍 trigger_id == stop_charge
+        condition: trigger
+        id: stop_charge
+      sequence:
+      - alias: '🔋 Bateria: Przywróć max prąd ładowania 10A'
+        action: number.set_value
+        target:
+          entity_id:
+          - number.foxess_modbus_max_charge_current
+        data:
+          value: 10
+      - alias: '🏠 Falownik: Ustaw tryb Self Use'
+        action: select.select_option
+        target:
+          entity_id:
+          - select.foxess_modbus_work_mode
+        data:
+          option: Self Use
+      - alias: '📲 Powiadomienie: Zakończono ładowanie'
+        action: notify.mobile_app_your_phone
+        data:
+          title: '✅ BMS: Tryb autokonsumpcji'
+          message: 'Zakończono ładowanie taryfowe. SoC: {{ states(''sensor.battery_soc_foxess_modbus'')
+            }}%'
+          data:
+            tag: bms_status
+            group: bms_log
+            channel: BMS Alerts
+  mode: restart
 
-      # --- SCENARIO 2: STOP CHARGING ---
-      - alias: "🔴 EXECUTION: Stop Charging (Self Use)"
-        conditions:
-          - condition: trigger
-            id: stop_charge
-        sequence:
-          - alias: "Inverter: Self Use"
-            action: select.select_option
-            target:
-              entity_id: select.work_mode
-            data:
-              option: Self Use
-          
-          - alias: "Notification: Mobile App (Telefon)"
-            action: notify.mobile_app_telefon_jarek_fold7
-            data:
-              title: "✅ BMS Stopped"
-              message: "Returned to Self Use. SoC: {{ states('sensor.battery_soc_raw') }}%"
-              data:
-                tag: bms_status
-                group: bms_log
-                channel: "BMS Alerts"

@@ -1,0 +1,207 @@
+# -----------------------------------------------------------------------------
+# BMS Package: Extended Modbus Sensors
+# Author:      Home Assistant Architect | JrX-Code
+# Description: Extended FoxESS inverter data via foxess_modbus integration.
+#              Registers: SoC, SoH, inverter state, load L1/L2/L3, EPS,
+#              smart meter, battery temperature.
+# -----------------------------------------------------------------------------
+
+# 2. MODBUS PROXY SENSOR
+template:
+  - trigger:
+      # Poll every 1 minute
+      - trigger: time_pattern
+        minutes: "/1"
+      # Force update immediately on mode change
+      - trigger: state
+        entity_id: select.work_mode
+    action:
+      # Battery SoC from register 31038
+      - action: foxess_modbus.read_registers
+        data:
+          start_address: 31038
+          count: 1
+          type: input
+          inverter: ae45480053bf900c765ebe367fdb336b
+        response_variable: fm_battery_soc
+      # Inverter state from register 31041
+      - action: foxess_modbus.read_registers
+        data:
+          inverter: ae45480053bf900c765ebe367fdb336b
+          start_address: 31041
+          count: 1
+          type: input
+        response_variable: fm_inverter_state
+      # Load power L1/L2/L3 from registers 31029-31031
+      - action: foxess_modbus.read_registers
+        data:
+          inverter: ae45480053bf900c765ebe367fdb336b
+          start_address: 31029
+          count: 3
+          type: input
+        response_variable: fm_load_power
+      # EPS power L1/L2/L3 from registers 31022-31024
+      - action: foxess_modbus.read_registers
+        data:
+          inverter: ae45480053bf900c765ebe367fdb336b
+          start_address: 31022
+          count: 3
+          type: input
+        response_variable: fm_eps_power
+      # Smart Meter power L1/L2/L3 from registers 31026-31028
+      - action: foxess_modbus.read_registers
+        data:
+          inverter: ae45480053bf900c765ebe367fdb336b
+          start_address: 31026
+          count: 3
+          type: input
+        response_variable: fm_smart_meter_power
+      # Battery temperature from register 31037
+      - action: foxess_modbus.read_registers
+        data:
+          inverter: ae45480053bf900c765ebe367fdb336b
+          start_address: 31037
+          count: 1
+          type: input
+        response_variable: fm_battery_temperature
+      # Battery SoH from register 31090 (Manager >= 1.80, uint16, %)
+      # Read directly because foxess_modbus integration has a bug:
+      # bms_connect_state register 31042 returns 257 (0x0101 = 1 battery + BMS OK)
+      # but the code checks `!= 1` so SoH always shows "unknown".
+      - action: foxess_modbus.read_registers
+        data:
+          inverter: ae45480053bf900c765ebe367fdb336b
+          start_address: 31090
+          count: 1
+          type: holding
+        response_variable: fm_battery_soh
+
+    sensor:
+      # Battery SoC (%)
+      - name: "Battery SoC (Foxess - Modbus)"
+        unique_id: foxess_modbus_battery_soc
+        unit_of_measurement: "%"
+        device_class: battery
+        state_class: measurement
+        state: >
+            {% if fm_battery_soc is defined and fm_battery_soc['values'] is defined %}
+            {{ fm_battery_soc['values'][31038] | int }}
+            {% else %}
+            {{ this.state | int(0) }}
+            {% endif %}
+
+      # Inverter state (mapped from register 31041)
+      - name: "Inverter State (Foxess - Modbus)"
+        unique_id: foxess_modbus_inverter_state
+        state: >
+            {% set inv_states = {1: 'Self-check', 2: 'On-grid', 3: 'EPS', 4: 'Fault', 5: 'Fault', 8: 'Idle'} %}
+            {% if fm_inverter_state is defined and fm_inverter_state['values'] is defined and 31041 in fm_inverter_state['values'] %}
+            {% set val = fm_inverter_state['values'][31041] | int %}
+            {{ inv_states[val] if val in inv_states else 'Unknown (' ~ val ~ ')' }}
+            {% else %}
+            {{ this.state if this.state is defined else 'Unknown' }}
+            {% endif %}
+
+      # Load power sum L1+L2+L3 (W)
+      - name: "Load Power (Foxess - Modbus)"
+        unique_id: foxess_modbus_load_power
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        state: >
+          {% set data = fm_load_power.get('values', {}) %}
+          {% if data %}
+            {% set res = namespace(sum=0) %}
+            {% for i in [31029, 31030, 31031] %}
+              {% set v = data.get(i, 0) | int %}
+              {% set res.sum = res.sum + (v - 65536 if v > 32767 else v) %}
+            {% endfor %}
+            {{ res.sum }}
+          {% else %}
+            {{ this.state | default(0) }}
+          {% endif %}
+
+      # Grid power sum R+S+T (kW)
+      - name: "Grid Power (Foxess - Modbus)"
+        unique_id: foxess_modbus_grid_power
+        unit_of_measurement: "kW"
+        device_class: power
+        state_class: measurement
+        state: >
+          {% set r = states('sensor.foxess_modbus_grid_ct_r') | float(none) %}
+          {% set s = states('sensor.foxess_modbus_grid_ct_s') | float(none) %}
+          {% set t = states('sensor.foxess_modbus_grid_ct_t') | float(none) %}
+          {% if r is not none and s is not none and t is not none %}
+            {{ (r + s + t) | round(3) }}
+          {% else %}
+            {{ this.state | default(0) }}
+          {% endif %}
+
+      # EPS power sum L1+L2+L3 (kW)
+      - name: "EPS Power (Foxess - Modbus)"
+        unique_id: foxess_modbus_eps_power
+        unit_of_measurement: "kW"
+        device_class: power
+        state_class: measurement
+        state: >
+          {% set data = fm_eps_power.get('values', {}) %}
+          {% if data %}
+            {% set res = namespace(sum=0) %}
+            {% for i in [31022, 31023, 31024] %}
+              {% set v = data.get(i, 0) | int %}
+              {% set res.sum = res.sum + (v - 65536 if v > 32767 else v) %}
+            {% endfor %}
+            {{ (res.sum / 1000) | round(3) }}
+          {% else %}
+            {{ this.state | default(0) }}
+          {% endif %}
+
+      # Smart Meter power sum L1+L2+L3 (W)
+      - name: "Smart Meter Power (Foxess - Modbus)"
+        unique_id: foxess_modbus_smart_meter_power
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        availability: >
+          {{ fm_smart_meter_power is defined and fm_smart_meter_power['values'] is defined }}
+        state: >
+          {% set data = fm_smart_meter_power.get('values', {}) %}
+          {% if data %}
+            {% set res = namespace(sum=0) %}
+            {% for i in [31026, 31027, 31028] %}
+              {% set v = data.get(i, 0) | int %}
+              {% set res.sum = res.sum + (v - 65536 if v > 32767 else v) %}
+            {% endfor %}
+            {{ res.sum }}
+          {% else %}
+            {{ this.state | default(0) }}
+          {% endif %}
+
+      # Battery SoH (%)
+      - name: "Battery SoH (Foxess - Modbus)"
+        unique_id: foxess_modbus_battery_soh_custom
+        unit_of_measurement: "%"
+        device_class: battery
+        state_class: measurement
+        state: >
+          {% if fm_battery_soh is defined and fm_battery_soh['values'] is defined and 31090 in fm_battery_soh['values'] %}
+            {% set v = fm_battery_soh['values'][31090] | int %}
+            {{ v if 0 <= v <= 100 else this.state | default(0) }}
+          {% else %}
+            {{ this.state | default(0) }}
+          {% endif %}
+
+      # Battery temperature (°C)
+      - name: "Battery Temperature (Foxess - Modbus)"
+        unique_id: foxess_modbus_battery_temperature
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state_class: measurement
+        state: >
+          {% if fm_battery_temperature is defined and fm_battery_temperature['values'] is defined and 31037 in fm_battery_temperature['values'] %}
+            {% set v = fm_battery_temperature['values'][31037] | int %}
+            {% set temp = v - 65536 if v > 32767 else v %}
+            {{ (temp / 10) | round(1) }}
+          {% else %}
+            {{ this.state | default(0) }}
+          {% endif %}

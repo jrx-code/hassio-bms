@@ -31,11 +31,11 @@ To function correctly, the **RobCo Logic Engine** (`bms.jinja`) requires specifi
 | `sensor.battery_soc_raw` | **Integer** `(%)` | `0` - `100` | Real-time SoC directly from BMS/Modbus. Must be instant. |
 | `sensor.solcast_pv_forecast...` | **Float** `(kWh)` | `>= 0.0` | **Remaining** energy forecast for today. Defines solar offset. |
 | `sensor.openweathermap_temperature` | **Float** `(°C)` | Any (`-30` to `50`) | Ambient temp. Drives charging efficiency & heat pump demand logic. |
-| `sensor.pora_roku` | **String** | `'zima'`, `'wiosna'`, `'lato'`, `'jesień'` | Season sensor. **Must be in Polish** to match Jinja logic map. |
+| `sensor.pora_roku` | **String** | `'winter'`, `'spring'`, `'summer'`, `'autumn'` | Season sensor. English values matching HA season integration. |
 | `sensor.openweathermap_condition` | **String** | `cloudy`, `rainy`, `sunny`, etc. | Weather condition. Used to lower solar confidence in bad weather. |
 | `select.work_mode` | **Select** | `Self Use`, `Force Charge` | The control entity for the FoxESS Inverter. |
 
-> **Note:** If your season sensor returns English values (e.g., 'winter'), you must edit `config/custom_templates/bms.jinja` to match them.
+> **Note:** The season sensor must return English values (`winter`, `spring`, `summer`, `autumn`) matching the standard HA season integration.
 
 ---
 
@@ -77,7 +77,7 @@ When `now() >= calculated_start_time`, the Automation triggers:
 
 ## 🚀 Installation
 
-1.  **Copy Files:** Copy `config/packages` and `config/custom_templates` from this repo into your Home Assistant `/config/` directory (so you get `/config/packages/...` and `/config/custom_templates/...`).
+1.  **Copy Files:** Copy `config/packages/bms` and `config/custom_templates` from this repo into your Home Assistant `/config/` directory (so you get `/config/packages/bms/...` and `/config/custom_templates/...`).
 2.  **Update Config:** Ensure your `configuration.yaml` allows packages:
     ```yaml
     homeassistant:
@@ -98,3 +98,4 @@ When `now() >= calculated_start_time`, the Automation triggers:
 ---
 
 *Property of RobCo Industries. Unauthorized access is a Class A felony.*
+
