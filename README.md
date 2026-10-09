@@ -70,6 +70,8 @@ When `now() >= calculated_start_time`, the Automation triggers:
 | **`config/custom_templates/bms.jinja`** | **The Brain.** Contains the heavy mathematical macros and logic modifiers. |
 | **`config/packages/bms/1_infrastructure.yaml`** | **The Hardware.** Input Booleans (Safety Switch) and Modbus Proxy sensors. |
 | **`config/packages/bms/2_logic.yaml`** | **The Sensors.** Template sensors that expose the calculated start times to HA. |
+| **`config/packages/bms/4_modbus.yaml`** | **The Telemetry.** Extended FoxESS inverter readings via the `foxess_modbus` integration (SoC, SoH, inverter state, per-phase load, EPS, smart meter, battery temperature). |
+| **`config/packages/ai/laundry_tracker.yaml`** | **Extra (optional).** Laundry drying session tracker (helpers for humidity-curve logging); not required by the BMS logic. |
 | **`config/automations/automation_reference.yaml`** | **The Enforcer.** Automation triggers & actions to paste into the HA UI. |
 | **`cards/`** | Lovelace card YAML for battery / debug dashboards. |
 
